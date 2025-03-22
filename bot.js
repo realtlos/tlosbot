@@ -165,6 +165,36 @@ client.on('message', (channel, tags, message, self) => {
             client.say(channel, `Command "-${delCmd}" removed!`);
             break;
 
+        case 'gamble':
+            const gambleAmount = parseInt(args[0], 10);
+
+            // Check if the user provided a valid amount
+            if (isNaN(gambleAmount) || gambleAmount <= 0) {
+                client.say(channel, `@${username}, please provide a valid amount to gamble.`);
+                return;
+            }
+
+            // Check if the user has enough points
+            if (!userPoints[username] || userPoints[username] < gambleAmount) {
+                client.say(channel, `@${username}, you don't have enough points to gamble.`);
+                return;
+            }
+
+            // Simulate a 50% chance of winning
+            const win = Math.random() < 0.5; // 50% chance to win
+
+            // Calculate the result and update points
+            if (win) {
+                userPoints[username] += gambleAmount;
+                saveJSON(POINTS_FILE, userPoints);
+                client.say(channel, `@${username} gambled ${gambleAmount} points and won! 🎉 You now have ${userPoints[username]} points.`);
+            } else {
+                userPoints[username] -= gambleAmount;
+                saveJSON(POINTS_FILE, userPoints);
+                client.say(channel, `@${username} gambled ${gambleAmount} points and lost. 😞 You now have ${userPoints[username]} points.`);
+            }
+            break;
+
         default:
             if (customCommands[command]) {
                 client.say(channel, customCommands[command]);
