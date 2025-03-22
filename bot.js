@@ -104,11 +104,11 @@ async function handleChatMessage(event) {
     // ✅ Case-sensitive non-prefix commands with custom delays
     const nonPrefixCommands = {
         "LOL": { response: "LOL", delay: 1000 }, // 1 second delay
-        "": { response: "", delay: 2000 }, // 2 seconds delay
-        "": { response: "", delay: 500 } // 0.5 seconds delay
+        "LMAO": { response: "LMAO", delay: 2000 }, // 2-second delay
+        "BRUH": { response: "BRUH", delay: 500 } // 0.5-second delay
     };
 
-    if (nonPrefixCommands[message]) {
+    if (nonPrefixCommands.hasOwnProperty(message)) {
         const { response, delay } = nonPrefixCommands[message];
         setTimeout(async () => {
             await sendChatMessage(response);
