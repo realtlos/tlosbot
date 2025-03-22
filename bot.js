@@ -10,7 +10,7 @@ const CHAT_CHANNEL_USER_ID = process.env.CHAT_CHANNEL_USER_ID;
 
 const POINTS_FILE = 'points.json';
 const COMMANDS_FILE = 'commands.json';
-const MODERATORS = ['xtlos']; // Add moderators here
+const MODERATORS = ['xtlos', 'yourusername']; // Add your username here
 
 const EVENTSUB_WEBSOCKET_URL = 'wss://eventsub.wss.twitch.tv/ws';
 let websocketSessionID;
@@ -25,7 +25,7 @@ const PREFIX = "-"; // Command prefix
     startWebSocketClient();
 })();
 
-// ✅ Load JSON File (points.json or commands.json)
+// ✅ Load JSON File
 function loadJSON(file) {
     if (fs.existsSync(file)) {
         return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -49,14 +49,14 @@ async function validateToken() {
         console.error("Invalid OAuth Token.");
         process.exit(1);
     }
-    console.log("OAuth Token Validated.");
+    console.log("✅ OAuth Token Validated.");
 }
 
 // ✅ Start WebSocket Client
 function startWebSocketClient() {
     let ws = new WebSocket(EVENTSUB_WEBSOCKET_URL);
     ws.on('error', console.error);
-    ws.on('open', () => console.log('WebSocket connected'));
+    ws.on('open', () => console.log('✅ WebSocket connected'));
     ws.on('message', (data) => handleWebSocketMessage(JSON.parse(data.toString())));
 }
 
@@ -88,28 +88,29 @@ async function registerEventSubListeners() {
     });
 
     if (response.status !== 202) {
-        console.error("Failed to subscribe to channel.chat.message.");
+        console.error("❌ Failed to subscribe to channel.chat.message.");
         process.exit(1);
     }
-    console.log("Subscribed to chat messages.");
+    console.log("✅ Subscribed to chat messages.");
 }
 
 // ✅ Handle Chat Messages
 async function handleChatMessage(event) {
     const message = event.message.text.trim();
     const user = event.chatter_user_login.toLowerCase();
-    
-    console.log(`Message from ${user}: ${message}`);
+
+    console.log(`💬 Received message from ${user}: ${message}`);
 
     // ✅ Case-sensitive non-prefix commands with custom delays
     const nonPrefixCommands = {
-        "LOL": { response: "LOL", delay: 1000 }, // 1 second delay
-        "LMAO": { response: "LMAO", delay: 2000 }, // 2-second delay
-        "BRUH": { response: "BRUH", delay: 500 } // 0.5-second delay
+        "LOL": { response: "LOL", delay: 1000 },
+        "WOW": { response: "WOW", delay: 2000 },
+        "GG": { response: "GG", delay: 500 }
     };
 
     if (nonPrefixCommands.hasOwnProperty(message)) {
         const { response, delay } = nonPrefixCommands[message];
+        console.log(`Matched non-prefix command: ${message}, responding in ${delay}ms`);
         setTimeout(async () => {
             await sendChatMessage(response);
         }, delay);
@@ -120,6 +121,7 @@ async function handleChatMessage(event) {
     if (message.startsWith(PREFIX)) {
         const args = message.slice(1).split(" ");
         const command = args.shift().toLowerCase();
+        console.log(`Executing command: ${command}, User: ${user}, Args: ${args}`);
         await executeCommand(command, user, args);
     }
 }
@@ -127,47 +129,28 @@ async function handleChatMessage(event) {
 // ✅ Execute Commands
 async function executeCommand(command, user, args) {
     switch (command) {
-        case 'addcmd': // Moderator-only command to add new commands
+        case 'addpoints':
             if (MODERATORS.includes(user)) {
-                const newCommand = args[0];
-                const response = args.slice(1).join(" ");
-                if (newCommand && response) {
-                    customCommands[newCommand] = response;
-                    saveJSON(COMMANDS_FILE, customCommands);
-                    await sendChatMessage(`Command '${newCommand}' added!`);
-                } else {
-                    await sendChatMessage(`Usage: -addcmd <command> <response>`);
+                const targetUser = args[0]?.toLowerCase();
+                const amount = parseInt(args[1], 10);
+
+                console.log(`Processing -addpoints command. Target: ${targetUser}, Amount: ${amount}`);
+
+                if (!targetUser || isNaN(amount) || amount <= 0) {
+                    await sendChatMessage(`Usage: -addpoints <user> <amount>`);
+                    return;
                 }
+
+                userPoints[targetUser] = (userPoints[targetUser] || 0) + amount;
+                saveJSON(POINTS_FILE, userPoints);
+                await sendChatMessage(`@${targetUser} has been given ${amount} points! 🎉`);
             } else {
-                await sendChatMessage(`@${user}, you do not have permission to add commands.`);
+                await sendChatMessage(`@${user}, you do not have permission to add points.`);
             }
             break;
 
-        case 'removecmd': // Moderator-only command to remove commands
-            if (MODERATORS.includes(user)) {
-                const cmdToRemove = args[0];
-                if (cmdToRemove && customCommands[cmdToRemove]) {
-                    delete customCommands[cmdToRemove];
-                    saveJSON(COMMANDS_FILE, customCommands);
-                    await sendChatMessage(`Command '${cmdToRemove}' removed!`);
-                } else {
-                    await sendChatMessage(`Command '${cmdToRemove}' not found.`);
-                }
-            } else {
-                await sendChatMessage(`@${user}, you do not have permission to remove commands.`);
-            }
-            break;
-
-        case 'points': // Check points
+        case 'points':
             await checkPoints(user);
-            break;
-
-        case 'givepoints': // Give points to another user
-            await givePoints(user, args);
-            break;
-
-        case 'gamble': // Gamble points
-            await gamblePoints(user, args);
             break;
 
         default:
@@ -179,60 +162,5 @@ async function executeCommand(command, user, args) {
 
 // ✅ Send Chat Message
 async function sendChatMessage(message) {
-    await fetch('https://api.twitch.tv/helix/chat/messages', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${OAUTH_TOKEN}`,
-            'Client-Id': CLIENT_ID,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            broadcaster_id: CHAT_CHANNEL_USER_ID,
-            sender_id: BOT_USER_ID,
-            message: message
-        })
-    });
-
-    console.log("Sent:", message);
-}
-
-// ✅ Check Points
-async function checkPoints(user) {
-    const points = userPoints[user] || 0;
-    await sendChatMessage(`${user}, you have ${points} points.`);
-}
-
-// ✅ Give Points
-async function givePoints(user, args) {
-    const recipient = args[0]?.toLowerCase();
-    const amount = parseInt(args[1], 10);
-
-    if (!recipient || isNaN(amount) || amount <= 0) {
-        await sendChatMessage(`Usage: -givepoints <user> <amount>`);
-        return;
-    }
-
-    if ((userPoints[user] || 0) < amount) {
-        await sendChatMessage(`@${user}, you don't have enough points.`);
-        return;
-    }
-
-    userPoints[user] -= amount;
-    userPoints[recipient] = (userPoints[recipient] || 0) + amount;
-    saveJSON(POINTS_FILE, userPoints);
-    await sendChatMessage(`@${user} gave ${amount} points to @${recipient}.`);
-}
-
-// ✅ Gamble Points
-async function gamblePoints(user, args) {
-    const bet = parseInt(args[0], 10);
-    if (isNaN(bet) || bet <= 0 || (userPoints[user] || 0) < bet) {
-        await sendChatMessage(`@${user}, invalid bet.`);
-        return;
-    }
-
-    const win = Math.random() < 0.5;
-    userPoints[user] += win ? bet : -bet;
-    saveJSON(POINTS_FILE, userPoints);
-    await sendChatMessage(`@${user} ${win ? "won" : "lost"} ${bet} points!`);
+    console.log("✅ Sending message:", message);
 }
