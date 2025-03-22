@@ -52,12 +52,17 @@ async function validateToken() {
     console.log("✅ OAuth Token Validated.");
 }
 
-// ✅ Start WebSocket Client
+// ✅ Start WebSocket Client with auto-reconnect
 function startWebSocketClient() {
     let ws = new WebSocket(EVENTSUB_WEBSOCKET_URL);
+
     ws.on('error', console.error);
     ws.on('open', () => console.log('✅ WebSocket connected'));
     ws.on('message', (data) => handleWebSocketMessage(JSON.parse(data.toString())));
+    ws.on('close', () => {
+        console.log('❌ WebSocket disconnected. Reconnecting in 5 seconds...');
+        setTimeout(startWebSocketClient, 5000);
+    });
 }
 
 // ✅ Handle WebSocket Messages
@@ -80,15 +85,15 @@ async function registerEventSubListeners() {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            type: 'channel.chat.message',
+            type: 'channel.chat.notification',
             version: '1',
-            condition: { broadcaster_user_id: CHAT_CHANNEL_USER_ID, user_id: BOT_USER_ID },
+            condition: { broadcaster_user_id: CHAT_CHANNEL_USER_ID },
             transport: { method: 'websocket', session_id: websocketSessionID }
         })
     });
 
     if (response.status !== 202) {
-        console.error("❌ Failed to subscribe to channel.chat.message.");
+        console.error("❌ Failed to subscribe to chat notifications.");
         process.exit(1);
     }
     console.log("✅ Subscribed to chat messages.");
@@ -96,8 +101,13 @@ async function registerEventSubListeners() {
 
 // ✅ Handle Chat Messages
 async function handleChatMessage(event) {
-    const message = event.message.text.trim();
-    const user = event.chatter_user_login.toLowerCase();
+    const message = event.message.text?.trim();
+    const user = event.chatter_user_login?.toLowerCase();
+
+    if (!message || !user) {
+        console.log("⚠️ Received invalid message event:", event);
+        return;
+    }
 
     console.log(`💬 Received message from ${user}: ${message}`);
 
@@ -110,7 +120,6 @@ async function handleChatMessage(event) {
 
     if (nonPrefixCommands.hasOwnProperty(message)) {
         const { response, delay } = nonPrefixCommands[message];
-        console.log(`Matched non-prefix command: ${message}, responding in ${delay}ms`);
         setTimeout(async () => {
             await sendChatMessage(response);
         }, delay);
@@ -121,7 +130,6 @@ async function handleChatMessage(event) {
     if (message.startsWith(PREFIX)) {
         const args = message.slice(1).split(" ");
         const command = args.shift().toLowerCase();
-        console.log(`Executing command: ${command}, User: ${user}, Args: ${args}`);
         await executeCommand(command, user, args);
     }
 }
@@ -131,13 +139,15 @@ async function executeCommand(command, user, args) {
     switch (command) {
         case 'addpoints':
             if (MODERATORS.includes(user)) {
-                const targetUser = args[0]?.toLowerCase();
+                if (args.length < 2) {
+                    await sendChatMessage(`Usage: -addpoints <user> <amount>`);
+                    return;
+                }
+                const targetUser = args[0].toLowerCase();
                 const amount = parseInt(args[1], 10);
 
-                console.log(`Processing -addpoints command. Target: ${targetUser}, Amount: ${amount}`);
-
-                if (!targetUser || isNaN(amount) || amount <= 0) {
-                    await sendChatMessage(`Usage: -addpoints <user> <amount>`);
+                if (isNaN(amount) || amount <= 0) {
+                    await sendChatMessage(`Invalid amount. Usage: -addpoints <user> <amount>`);
                     return;
                 }
 
@@ -150,7 +160,35 @@ async function executeCommand(command, user, args) {
             break;
 
         case 'points':
-            await checkPoints(user);
+            const target = args[0]?.toLowerCase() || user;
+            await sendChatMessage(`@${target} has ${userPoints[target] || 0} points.`);
+            break;
+
+        case 'addcmd':
+            if (MODERATORS.includes(user)) {
+                const cmd = args[0]?.toLowerCase();
+                const response = args.slice(1).join(" ");
+                if (!cmd || !response) {
+                    await sendChatMessage(`Usage: -addcmd <command> <response>`);
+                    return;
+                }
+                customCommands[cmd] = response;
+                saveJSON(COMMANDS_FILE, customCommands);
+                await sendChatMessage(`Command "-${cmd}" added!`);
+            }
+            break;
+
+        case 'delcmd':
+            if (MODERATORS.includes(user)) {
+                const cmd = args[0]?.toLowerCase();
+                if (!cmd || !customCommands[cmd]) {
+                    await sendChatMessage(`Command "-${cmd}" does not exist.`);
+                    return;
+                }
+                delete customCommands[cmd];
+                saveJSON(COMMANDS_FILE, customCommands);
+                await sendChatMessage(`Command "-${cmd}" removed!`);
+            }
             break;
 
         default:
@@ -163,4 +201,5 @@ async function executeCommand(command, user, args) {
 // ✅ Send Chat Message
 async function sendChatMessage(message) {
     console.log("✅ Sending message:", message);
+    // Here, implement your logic to send a chat message through the Twitch API or IRC.
 }
