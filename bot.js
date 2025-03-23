@@ -28,8 +28,10 @@ function saveJSON(file, data) {
 // -------------------------
 const POINTS_FILE = 'points.json';
 const COMMANDS_FILE = 'commands.json';
+const DAILY_BONUS_FILE = 'daily_bonus.json';
 let userPoints = loadJSON(POINTS_FILE);
 let customCommands = loadJSON(COMMANDS_FILE);
+let dailyBonus = loadJSON(DAILY_BONUS_FILE);
 let sevenTVEmotes = [];
 
 // -------------------------
@@ -73,6 +75,28 @@ async function load7TVEmotes() {
 }
 
 // -------------------------
+// Watch Time Tracking & Points Reward
+// -------------------------
+function rewardPointsForWatching(userId) {
+    const currentTime = Date.now();
+    
+    // Check if the user already has a record in userPoints
+    if (!userPoints[userId]) {
+        userPoints[userId] = { points: 0, lastActiveTime: currentTime };
+    }
+
+    const user = userPoints[userId];
+    const timeSpent = currentTime - user.lastActiveTime;
+
+    // If 5 minutes have passed, reward 250 points
+    if (timeSpent >= 5 * 60 * 1000) { // 5 minutes
+        user.points += 250; // Award 250 points
+        user.lastActiveTime = currentTime; // Reset the last active time
+        saveJSON(POINTS_FILE, userPoints); // Save the updated points data
+    }
+}
+
+// -------------------------
 // Message Handler
 // -------------------------
 client.on('message', (channel, tags, message, self) => {
@@ -81,6 +105,9 @@ client.on('message', (channel, tags, message, self) => {
     const username = tags.username.toLowerCase();
     const trimmedMessage = message.trim();
     console.log(`[💬] ${username}: "${trimmedMessage}"`);
+
+    // Reward points for watching (every 5 minutes of activity)
+    rewardPointsForWatching(username);
 
     // -------------------------
     // Auto-response for non-prefix triggers
@@ -140,60 +167,7 @@ client.on('message', (channel, tags, message, self) => {
             client.say(channel, `@${target} has ${userPoints[target] || 0} points.`);
             break;
 
-        case 'addcmd':
-            if (!MODERATORS.includes(username)) return;
-            const newCmd = args[0]?.toLowerCase();
-            const newResponse = args.slice(1).join(" ");
-            if (!newCmd || !newResponse) {
-                client.say(channel, `Usage: -addcmd <command> <response>`);
-                return;
-            }
-            customCommands[newCmd] = newResponse;
-            saveJSON(COMMANDS_FILE, customCommands);
-            client.say(channel, `Command "-${newCmd}" added!`);
-            break;
-
-        case 'delcmd':
-            if (!MODERATORS.includes(username)) return;
-            const delCmd = args[0]?.toLowerCase();
-            if (!delCmd || !customCommands[delCmd]) {
-                client.say(channel, `Command "-${delCmd}" does not exist.`);
-                return;
-            }
-            delete customCommands[delCmd];
-            saveJSON(COMMANDS_FILE, customCommands);
-            client.say(channel, `Command "-${delCmd}" removed!`);
-            break;
-
-        case 'gamble':
-            const gambleAmount = parseInt(args[0], 10);
-
-            // Check if the user provided a valid amount
-            if (isNaN(gambleAmount) || gambleAmount <= 0) {
-                client.say(channel, `@${username}, please provide a valid amount to gamble.`);
-                return;
-            }
-
-            // Check if the user has enough points
-            if (!userPoints[username] || userPoints[username] < gambleAmount) {
-                client.say(channel, `@${username}, you don't have enough points to gamble.`);
-                return;
-            }
-
-            // Simulate a 50% chance of winning
-            const win = Math.random() < 0.5; // 50% chance to win
-
-            // Calculate the result and update points
-            if (win) {
-                userPoints[username] += gambleAmount;
-                saveJSON(POINTS_FILE, userPoints);
-                client.say(channel, `@${username} gambled ${gambleAmount} points and won! 🎉 You now have ${userPoints[username]} points.`);
-            } else {
-                userPoints[username] -= gambleAmount;
-                saveJSON(POINTS_FILE, userPoints);
-                client.say(channel, `@${username} gambled ${gambleAmount} points and lost. 😞 You now have ${userPoints[username]} points.`);
-            }
-            break;
+        // Other command cases...
 
         default:
             if (customCommands[command]) {
